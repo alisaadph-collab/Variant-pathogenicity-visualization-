@@ -1,0 +1,544 @@
+# ============================================================
+# Variant pathogenicity normalized test-scale plot
+# Self-contained RStudio version
+# ============================================================
+#
+# IMPORTANT:
+# In RStudio, run the ENTIRE script by clicking "Source"
+# at the top-right of the script editor.
+#
+# Do NOT run only the final lines or isolated sections,
+# because all objects and functions must be created first.
+#
+# For each new variant:
+#   1. Change the variant nomenclature below.
+#   2. Change the prediction scores below.
+#   3. Use NA for any unavailable score.
+#   4. Click "Source" to run the entire script.
+#
+# No external Excel or CSV file is required.
+#
+# ============================================================
+
+
+# ============================================================
+# 1. EDIT ONLY THIS SECTION FOR EACH NEW VARIANT
+# ============================================================
+
+variant_name <- "NM_001376.5(DYNC1H1): c.12419G>A, p.Arg4140His"
+
+variant_scores <- c(
+  CADD = 27,
+  DANN = 1,
+  SIFT = 0.001,
+  `PolyPhen-2` = 1,
+  `Mutation Assessor` = 3.37,
+  REVEL = 0.48,
+  FATHMM_MKL = 0.99,
+  FATHMM = 2.96,
+  VARITY_R = 0.87,
+  BayesDel = 0.11,
+  VEST4 = 0.83,
+  MetaRNN = 0.89,
+  MutPred2 = 0.51,
+  MPC = 2.3,
+  AlphaMissense = 0.79,
+  ESM1b = -11.1,
+  PrimateAI = 0.91,
+  PROVEAN = -4.5,
+  DEOGEN2 = 0.39,
+  `LIST-S2` = 0.99,
+  ClinPred = 0.99
+)
+
+# If a prediction score is unavailable, enter NA.
+# Example:
+# REVEL = NA
+
+
+# ============================================================
+# DO NOT EDIT BELOW THIS LINE
+# ============================================================
+
+
+# ============================================================
+# 2. LOAD ggplot2
+# ============================================================
+
+if (!requireNamespace("ggplot2", quietly = TRUE)) {
+  install.packages("ggplot2")
+}
+
+suppressPackageStartupMessages({
+  library(ggplot2)
+})
+
+
+# ============================================================
+# 3. REGISTER TIMES NEW ROMAN ON WINDOWS
+# ============================================================
+
+if (.Platform$OS.type == "windows") {
+  windowsFonts(
+    Times = windowsFont("Times New Roman")
+  )
+}
+
+
+# ============================================================
+# 4. REFERENCE TABLE
+# ============================================================
+
+ref <- data.frame(
+
+  Tool = c(
+    "CADD",
+    "DANN",
+    "SIFT",
+    "PolyPhen-2",
+    "Mutation Assessor",
+    "REVEL",
+    "FATHMM_MKL",
+    "FATHMM",
+    "VARITY_R",
+    "BayesDel",
+    "VEST4",
+    "MetaRNN",
+    "MutPred2",
+    "MPC",
+    "AlphaMissense",
+    "ESM1b",
+    "PrimateAI",
+    "PROVEAN",
+    "DEOGEN2",
+    "LIST-S2",
+    "ClinPred"
+  ),
+
+  Min = c(
+    0, 0, 0, 0, -5.17, 0,
+    0, -16.13, 0, -1.12, 0, 0,
+    0, 0, 0, -24, 0,
+    -14, 0, 0, 0
+  ),
+
+  Max = c(
+    100, 1, 1, 1, 6.49, 1,
+    1, 10.64, 1, 0.75, 1, 1,
+    1, 5, 1, 0, 1,
+    14, 1, 1, 1
+  ),
+
+  Uncertain = c(
+    22.7, 0.95, 0.08, 0.113, 0.99, 0.29,
+    0.67, 3.32, 0.251, -0.18, 0.449, 0.295,
+    0.391, 0, 0.170, -6.2, 0.483,
+    NA, NA, NA, NA
+  ),
+
+  Pathogenic = c(
+    25.3, 0.99, 0.001, 0.978, 2.88, 0.644,
+    0.97, -4.14, 0.675, 0.13, 0.764, 0.65,
+    0.737, 1.36, 0.792, -10.7, 0.803,
+    -2.5, 0.5, 0.85, 0.5
+  ),
+
+  HigherPathogenic = c(
+    TRUE, TRUE, FALSE, TRUE, TRUE, TRUE,
+    TRUE, FALSE, TRUE, TRUE, TRUE, TRUE,
+    TRUE, TRUE, TRUE, FALSE, TRUE,
+    FALSE, TRUE, TRUE, TRUE
+  ),
+
+  stringsAsFactors = FALSE
+)
+
+
+# ============================================================
+# 5. NORMALIZATION FUNCTION
+# ============================================================
+
+normalize_value <- function(
+  x,
+  min_val,
+  max_val,
+  higher_pathogenic
+) {
+
+  if (
+    is.na(x) ||
+    is.na(min_val) ||
+    is.na(max_val)
+  ) {
+    return(NA_real_)
+  }
+
+  if (max_val == min_val) {
+    return(NA_real_)
+  }
+
+  if (higher_pathogenic) {
+
+    value <- (x - min_val) / (max_val - min_val)
+
+  } else {
+
+    value <- (max_val - x) / (max_val - min_val)
+  }
+
+  value <- max(0, min(1, value))
+
+  return(value)
+}
+
+
+# ============================================================
+# 6. NORMALIZE REFERENCE THRESHOLDS
+# ============================================================
+
+ref$Uncertain_norm <- mapply(
+  normalize_value,
+  x = ref$Uncertain,
+  min_val = ref$Min,
+  max_val = ref$Max,
+  higher_pathogenic = ref$HigherPathogenic
+)
+
+ref$Pathogenic_norm <- mapply(
+  normalize_value,
+  x = ref$Pathogenic,
+  min_val = ref$Min,
+  max_val = ref$Max,
+  higher_pathogenic = ref$HigherPathogenic
+)
+
+
+# ============================================================
+# 7. CHECK SCORE NAMES
+# ============================================================
+
+if (is.null(names(variant_scores))) {
+  stop("variant_scores must be a named vector.")
+}
+
+unknown_tools <- setdiff(
+  names(variant_scores),
+  ref$Tool
+)
+
+if (length(unknown_tools) > 0) {
+  warning(
+    "Unknown tools will be ignored: ",
+    paste(unknown_tools, collapse = ", ")
+  )
+}
+
+
+# ============================================================
+# 8. ADD VARIANT SCORES TO REFERENCE TABLE
+# ============================================================
+
+ref$Score <- NA_real_
+
+for (i in seq_len(nrow(ref))) {
+
+  tool_name <- ref$Tool[i]
+
+  if (tool_name %in% names(variant_scores)) {
+    ref$Score[i] <- as.numeric(
+      variant_scores[tool_name]
+    )
+  }
+}
+
+
+# ============================================================
+# 9. NORMALIZE VARIANT SCORES
+# ============================================================
+
+ref$Normalized_score <- mapply(
+  normalize_value,
+  x = ref$Score,
+  min_val = ref$Min,
+  max_val = ref$Max,
+  higher_pathogenic = ref$HigherPathogenic
+)
+
+
+# ============================================================
+# 10. CLASSIFICATION FUNCTION
+# ============================================================
+
+classify_value <- function(
+  score,
+  uncertain_threshold,
+  pathogenic_threshold
+) {
+
+  if (is.na(score)) {
+    return("NA")
+  }
+
+  if (is.na(pathogenic_threshold)) {
+    return("NA")
+  }
+
+  if (is.na(uncertain_threshold)) {
+
+    if (score >= pathogenic_threshold) {
+      return("Pathogenic")
+    } else {
+      return("Benign")
+    }
+  }
+
+  if (score < uncertain_threshold) {
+    return("Benign")
+  }
+
+  if (score < pathogenic_threshold) {
+    return("Uncertain")
+  }
+
+  return("Pathogenic")
+}
+
+
+# ============================================================
+# 11. CLASSIFY EACH SCORE
+# ============================================================
+
+ref$Classification <- mapply(
+  classify_value,
+  score = ref$Normalized_score,
+  uncertain_threshold = ref$Uncertain_norm,
+  pathogenic_threshold = ref$Pathogenic_norm
+)
+
+
+# ============================================================
+# 12. CREATE RESULTS TABLE
+# ============================================================
+
+results <- ref[
+  ,
+  c(
+    "Tool",
+    "Score",
+    "Normalized_score",
+    "Classification"
+  )
+]
+
+print(results)
+
+
+# ============================================================
+# 13. PREPARE PLOT DATA
+# ============================================================
+
+plot_data <- ref
+
+plot_data$Tool <- factor(
+  plot_data$Tool,
+  levels = rev(ref$Tool)
+)
+
+plot_data$Classification <- factor(
+  plot_data$Classification,
+  levels = c(
+    "Benign",
+    "Uncertain",
+    "Pathogenic",
+    "NA"
+  )
+)
+
+
+# ============================================================
+# 14. COLORS
+# ============================================================
+
+fill_colors <- c(
+  "Benign" = "#00B050",
+  "Uncertain" = "#FFC000",
+  "Pathogenic" = "#FF2A00",
+  "NA" = "#BFBFBF"
+)
+
+
+# ============================================================
+# 15. CREATE PLOT
+# ============================================================
+
+p <- ggplot(
+  plot_data,
+  aes(
+    x = Normalized_score,
+    y = Tool,
+    fill = Classification
+  )
+) +
+
+  geom_col(
+    width = 0.62,
+    show.legend = FALSE,
+    na.rm = TRUE
+  ) +
+
+  scale_x_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.2),
+    expand = expansion(mult = c(0, 0.03))
+  ) +
+
+  scale_fill_manual(
+    values = fill_colors,
+    drop = FALSE
+  ) +
+
+  labs(
+    title = variant_name,
+    x = "Normalized score",
+    y = NULL
+  ) +
+
+  theme_classic(
+    base_family = "Times",
+    base_size = 15
+  ) +
+
+  theme(
+
+    plot.title = element_text(
+      family = "Times",
+      size = 15,
+      face = "plain",
+      hjust = 0.5,
+      color = "black"
+    ),
+
+    axis.text.x = element_text(
+      family = "Times",
+      size = 15,
+      face = "plain",
+      color = "black"
+    ),
+
+    axis.text.y = element_text(
+      family = "Times",
+      size = 15,
+      face = "plain",
+      color = "black"
+    ),
+
+    axis.title.x = element_text(
+      family = "Times",
+      size = 15,
+      face = "plain",
+      color = "black"
+    ),
+
+    axis.title.y = element_blank(),
+
+    axis.line.y = element_blank(),
+
+    axis.ticks.y = element_blank(),
+
+    panel.grid = element_blank(),
+
+    legend.position = "none",
+
+    plot.background = element_rect(
+      fill = "white",
+      color = NA
+    ),
+
+    panel.background = element_rect(
+      fill = "white",
+      color = NA
+    ),
+
+    plot.margin = margin(
+      t = 18,
+      r = 28,
+      b = 18,
+      l = 18,
+      unit = "pt"
+    )
+  )
+
+
+# ============================================================
+# 16. DISPLAY PLOT IN RSTUDIO
+# ============================================================
+
+print(p)
+
+
+# ============================================================
+# 17. CREATE SAFE OUTPUT FILENAME
+# ============================================================
+
+safe_name <- gsub(
+  '[<>:"/\\\\|?*]',
+  "_",
+  variant_name
+)
+
+safe_name <- gsub(
+  "[[:space:]]+",
+  "_",
+  safe_name
+)
+
+safe_name <- gsub(
+  "_+",
+  "_",
+  safe_name
+)
+
+safe_name <- gsub(
+  "^_+|_+$",
+  "",
+  safe_name
+)
+
+if (safe_name == "") {
+  safe_name <- "variant"
+}
+
+output_png <- paste0(
+  safe_name,
+  ".png"
+)
+
+
+# ============================================================
+# 18. SAVE PNG
+# ============================================================
+
+ggsave(
+  filename = output_png,
+  plot = p,
+  device = "png",
+  width = 19,
+  height = 24,
+  units = "cm",
+  dpi = 600,
+  bg = "white"
+)
+
+
+# ============================================================
+# 19. FINAL MESSAGE
+# ============================================================
+
+message(
+  "Plot saved as: ",
+  normalizePath(
+    output_png,
+    winslash = "/",
+    mustWork = FALSE
+  )
+)
